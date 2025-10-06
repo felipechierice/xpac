@@ -1,5 +1,41 @@
 #!/usr/bin/env bash
 
+#########################################################################
+# xpac - Cross-Distro Package Manager
+#########################################################################
+#
+# Description: A unified package management wrapper tool that provides
+#              consistent commands across different Linux distributions
+#              and package managers (apt, pacman, yay, dnf, yum, zypper, pkg).
+#              Also includes common system utility commands.
+#
+# Author:      byomess
+# Repository:  https://github.com/byomess/xpac
+# Version:     0.2.0
+# License:     MIT License
+#
+# Supported Package Managers:
+#   - APT (Debian, Ubuntu, Linux Mint, Pop!_OS, etc.)
+#   - DNF (Fedora, RHEL 8+, CentOS Stream 8+, etc.)
+#   - Pacman (Arch Linux, Manjaro, EndeavourOS, etc.)
+#   - YUM (RHEL 7, CentOS 7, older Fedora versions)
+#   - Zypper (openSUSE, SUSE Linux Enterprise)
+#   - Pkg (FreeBSD, GhostBSD, Termux)
+#   - Yay (Arch Linux AUR Helper)
+#
+# Usage:       xpac [command] [options] [packages...]
+#              xpac --help for detailed usage information
+#
+# Examples:
+#   xpac install vim git          # Install packages
+#   xpac search firefox           # Search for packages
+#   xpac update-upgrade           # Update package lists and upgrade
+#   xpac sysinfo                  # Show system information
+#
+# Default Action: update-upgrade (when no arguments provided)
+#
+#########################################################################
+
 # --- Constants ---
 readonly XPAC_VERSION="0.2.0"
 readonly XPAC_HOME="$(dirname "$0")/../share/xpac"                  		# Path to xpac's shared directory.
