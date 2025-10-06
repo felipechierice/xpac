@@ -175,10 +175,11 @@ _warning() {
 }
 
 # Description: Prints a step message with purple color and step number.
-# Args: $1: Step number, $*: The message components.
+# Args: $1: Step number, $2: Total steps, $*: The message components.
 _step() {
   local step_num="$1"; shift
-  echo -e "${PURPLE}${BOLD}[Step $step_num]${NC} $*"
+  local total_steps="$1"; shift
+  echo -e "${PURPLE}${BOLD}[Step $step_num/$total_steps]${NC} $*"
 }
 
 # Description: Shows a spinner animation while a command runs.
@@ -217,6 +218,89 @@ _progress() {
   if [ $current -eq $total ]; then
     echo
   fi
+}
+
+# Description: Advanced mirror testing animation with wave effects and colors.
+# Args: $1: PID of background process
+_mirror_animation() {
+  local pid=$1
+  local frame=0
+  
+  # Smooth RGB color transition using 256-color palette
+  local rgb_colors=(
+    '\033[38;5;196m'  # Red
+    '\033[38;5;202m'  # Red-Orange
+    '\033[38;5;208m'  # Orange
+    '\033[38;5;214m'  # Orange-Yellow
+    '\033[38;5;220m'  # Yellow
+    '\033[38;5;226m'  # Yellow-Green
+    '\033[38;5;118m'  # Green
+    '\033[38;5;82m'   # Green-Cyan
+    '\033[38;5;51m'   # Cyan
+    '\033[38;5;45m'   # Cyan-Blue
+    '\033[38;5;39m'   # Blue
+    '\033[38;5;99m'   # Blue-Purple
+    '\033[38;5;129m'  # Purple
+    '\033[38;5;165m'  # Purple-Pink
+    '\033[38;5;201m'  # Pink
+    '\033[38;5;197m'  # Pink-Red
+  )
+  
+  # Elegant spinner characters
+  local spinner_chars=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+  
+  # Mirror testing messages
+  local messages=(
+    "🔍 Discovering available mirrors"
+    "🌐 Testing mirror connectivity" 
+    "📡 Analyzing response times"
+    "⚡ Measuring download speeds"
+    "🏃 Racing mirrors for performance"
+    "📊 Ranking by efficiency"
+    "🎯 Selecting optimal mirrors"
+    "💾 Optimizing mirrorlist"
+    "🔄 Finalizing configuration"
+  )
+  
+  local msg_index=0
+  local msg_timer=0
+  
+  while kill -0 $pid 2>/dev/null; do
+    # Change message every 25 frames (5 seconds at 0.2s intervals)
+    if (( msg_timer >= 25 )); then
+      msg_index=$(( (msg_index + 1) % ${#messages[@]} ))
+      msg_timer=0
+    fi
+    
+    # Clear line and move cursor to beginning
+    echo -ne "\r\033[K"
+    
+    # Current message
+    local current_msg="${messages[$msg_index]}"
+    echo -ne "${current_msg} "
+    
+    # RGB color cycling spinner
+    local spinner_idx=$((frame % ${#spinner_chars[@]}))
+    local color_idx=$((frame % ${#rgb_colors[@]}))
+    echo -ne "${rgb_colors[$color_idx]}${spinner_chars[$spinner_idx]}${NC}"
+    
+    # Show percentage progress (cycles through 0-100 smoothly)
+    local progress=$(( (frame * 2) % 101 ))
+    if (( progress <= 50 )); then
+      echo -ne " ${YELLOW}${progress}%${NC}"
+    else
+      echo -ne " ${GREEN}${progress}%${NC}"
+    fi
+    
+    # Update counters
+    frame=$((frame + 1))
+    msg_timer=$((msg_timer + 1))
+    
+    sleep 0.2
+  done
+  
+  # Clear the animation line
+  echo -ne "\r\033[K"
 }
 
 # Description: Prepends sudo to arguments if not root and not using yay.
@@ -916,12 +1000,12 @@ util_update_mirrors() {
     # Display header with ASCII art
     echo -e "${BOLD}${CYAN}"
     echo "╔══════════════════════════════════════════════════════════════════════════════╗"
-    echo "║                        🪞 PACMAN MIRRORLIST UPDATER 🪞                        ║"
+    echo "║                        🪞 PACMAN MIRRORLIST UPDATER 🪞[Step 1]                         ║"
     echo "╚══════════════════════════════════════════════════════════════════════════════╝"
     echo -e "${NC}"
     
     # Step 1: System compatibility check
-    _step 1 "Checking system compatibility..."
+    _step 1 5 "Checking system compatibility..."
     sleep 0.5
     if [[ "$package_manager" != "pacman" && "$package_manager" != "yay" ]]; then
         _err "Mirror update is only available for Arch Linux systems (pacman/yay)."
@@ -930,7 +1014,7 @@ util_update_mirrors() {
     _success "Arch Linux system detected! 🐧"
     
     # Step 2: Check reflector installation
-    _step 2 "Checking reflector availability..."
+    _step 2 5 "Checking reflector availability..."
     sleep 0.5
     if ! _require_command reflector "reflector"; then
         _warning "reflector is not installed."
@@ -938,7 +1022,7 @@ util_update_mirrors() {
         read -n 1 -r
         echo
         if [[ $REPLY =~ ^[Yy]$ ]]; then
-            _step "2.1" "Installing reflector..."
+            _step "2.1" 5 "Installing reflector..."
             _run_native_command "install" "reflector"
         else
             _err "reflector is required to update mirrors."
@@ -948,7 +1032,7 @@ util_update_mirrors() {
     _success "reflector is available! 🔧"
     
     # Step 3: Create backup
-    _step 3 "Creating backup of current mirrorlist..."
+    _step 3 5 "Creating backup of current mirrorlist..."
     local backup_file="/etc/pacman.d/mirrorlist.backup.$(date +%Y%m%d_%H%M%S)"
     
     # Show backup progress
@@ -966,7 +1050,7 @@ util_update_mirrors() {
     fi
     
     # Step 4: Fetch and rank mirrors
-    _step 4 "Fetching and ranking mirrors..."
+    _step 4 5 "Fetching and ranking mirrors..."
     echo -e "${CYAN}📡 Connecting to Arch Linux mirror servers...${NC}"
     echo -e "${YELLOW}⏱️  This process may take 1-3 minutes depending on network speed${NC}"
     echo
@@ -987,44 +1071,20 @@ util_update_mirrors() {
     
     local reflector_pid=$!
     
-    # Show animated progress while reflector runs
-    local progress_msgs=(
-        "🔍 Discovering available mirrors..."
-        "🌐 Testing mirror connectivity..."
-        "⚡ Measuring download speeds..."
-        "📊 Ranking by performance..."
-        "💾 Saving optimized mirrorlist..."
-    )
+    # Show advanced animated progress while reflector runs
+    echo -e "${BOLD}${PURPLE}� Starting mirror optimization process...${NC}"
+    echo -e "${YELLOW}⏱️  This may take 1-3 minutes depending on network speed${NC}"
+    echo
     
-    local msg_index=0
-    local dots=""
-    while kill -0 $reflector_pid 2>/dev/null; do
-        if (( msg_index < ${#progress_msgs[@]} )); then
-            echo -ne "\r${CYAN}${progress_msgs[$msg_index]}${dots}${NC}   "
-            dots="${dots}."
-            if (( ${#dots} > 3 )); then
-                dots=""
-                msg_index=$((msg_index + 1))
-            fi
-        else
-            echo -ne "\r${CYAN}🔄 Finalizing configuration${dots}${NC}   "
-            dots="${dots}."
-            if (( ${#dots} > 3 )); then
-                dots=""
-            fi
-        fi
-        sleep 0.5
-    done
-    
-    # Clear the progress line
-    echo -ne "\r$(printf '%80s' ' ')\r"
+    # Run our beautiful animation while reflector works
+    _mirror_animation $reflector_pid
     
     # Wait for reflector to complete and get exit status
     wait $reflector_pid
     local exit_status=$?
     
     # Step 5: Verify results
-    _step 5 "Verifying results..."
+    _step 5 5 "Verifying results..."
     
     if [ $exit_status -eq 0 ] && [ -f /etc/pacman.d/mirrorlist ] && [ -s /etc/pacman.d/mirrorlist ]; then
         _success "Mirrorlist updated successfully! 🎉"
