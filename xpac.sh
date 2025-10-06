@@ -431,6 +431,9 @@ _run_native_command() {
          printf -v final_cmd_str "%q " "${native_cmd_parts[@]}"
     fi
 
+    # Show the command that will be executed
+    _info "Executing: $final_cmd_str"
+
     eval "$final_cmd_str"
     local exit_status=$?
 
@@ -502,7 +505,13 @@ upgrade_packages() {
 
 # Description: Updates package list and then upgrades all packages.
 update_upgrade_packages() {
-  update_package_list && upgrade_packages
+  # For pacman and yay, -Syu already includes database refresh, so no need for separate update
+  if [[ "$package_manager" == "yay" || "$package_manager" == "pacman" ]]; then
+    _info "Updating package list and upgrading all packages using $package_manager..."
+    _run_native_command "upgrade"
+  else
+    update_package_list && upgrade_packages
+  fi
 }
 
 # Description: Lists all available packages.
