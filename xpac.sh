@@ -31,6 +31,7 @@
 #   xpac search firefox           # Search for packages
 #   xpac update-upgrade           # Update package lists and upgrade
 #   xpac sysinfo                  # Show system information
+#   xpac update-mirrors           # Update pacman mirrorlist (Arch Linux)
 #
 # Default Action: update-upgrade (when no arguments provided)
 #
@@ -138,16 +139,84 @@ dep_map[dpkg,pkg]=""
 
 # --- Helper Functions ---
 
-# Description: Prints an error message to stderr.
+# Color codes for styling
+readonly RED='\033[0;31m'
+readonly GREEN='\033[0;32m'
+readonly YELLOW='\033[0;33m'
+readonly BLUE='\033[0;34m'
+readonly PURPLE='\033[0;35m'
+readonly CYAN='\033[0;36m'
+readonly WHITE='\033[0;37m'
+readonly BOLD='\033[1m'
+readonly NC='\033[0m' # No Color
+
+# Description: Prints an error message to stderr with red color.
 # Args: $*: The error message components.
 _err() {
-  echo "Error: $*" >&2
+  echo -e "${RED}✗ Error:${NC} $*" >&2
 }
 
-# Description: Prints an info message to stdout.
+# Description: Prints an info message to stdout with blue color.
 # Args: $*: The message components.
 _info() {
-  echo "Info: $*"
+  echo -e "${BLUE}ℹ Info:${NC} $*"
+}
+
+# Description: Prints a success message with green color.
+# Args: $*: The message components.
+_success() {
+  echo -e "${GREEN}✓ Success:${NC} $*"
+}
+
+# Description: Prints a warning message with yellow color.
+# Args: $*: The message components.
+_warning() {
+  echo -e "${YELLOW}⚠ Warning:${NC} $*"
+}
+
+# Description: Prints a step message with purple color and step number.
+# Args: $1: Step number, $*: The message components.
+_step() {
+  local step_num="$1"; shift
+  echo -e "${PURPLE}${BOLD}[Step $step_num]${NC} $*"
+}
+
+# Description: Shows a spinner animation while a command runs.
+# Args: $1: PID of background process, $2: Message to show
+_spinner() {
+  local pid=$1
+  local msg="${2:-Processing}"
+  local spin='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+  local i=0
+  
+  echo -n -e "${CYAN}${msg}${NC} "
+  while kill -0 $pid 2>/dev/null; do
+    printf "\b${spin:$i:1}"
+    i=$(( (i+1) % ${#spin} ))
+    sleep 0.1
+  done
+  printf "\b "
+}
+
+# Description: Shows progress bar animation.
+# Args: $1: current step, $2: total steps, $3: description
+_progress() {
+  local current=$1
+  local total=$2
+  local desc="${3:-Progress}"
+  local width=30
+  local percentage=$((current * 100 / total))
+  local filled=$((current * width / total))
+  local empty=$((width - filled))
+  
+  printf "\r${CYAN}${desc}${NC} ["
+  printf "%${filled}s" | tr ' ' '█'
+  printf "%${empty}s" | tr ' ' '░'
+  printf "] %d%%" $percentage
+  
+  if [ $current -eq $total ]; then
+    echo
+  fi
 }
 
 # Description: Prepends sudo to arguments if not root and not using yay.
@@ -257,6 +326,7 @@ System Utility Commands:
           -n <num>       Show specified number of processes (default 10)
           -f <pattern>   Filter processes by command name/args (case-insensitive)
   ping                   - Check network connectivity by pinging 8.8.8.8
+  update-mirrors, mirrors - Update pacman mirrorlist using reflector (Arch Linux only)
 
 Options:
   -h, --help             - Show this help message
@@ -273,6 +343,7 @@ Examples:
   xpac top -s mem -n 5      # Top 5 by Memory
   xpac top -f bash          # Top 10 by CPU, filtered by 'bash'
   xpac top -s pid -f sshd   # Top 10 by PID, filtered by 'sshd'
+  xpac update-mirrors       # Update pacman mirrorlist (Arch Linux)
 
 For more information, see: https://github.com/byomess/xpac
 EOF
@@ -840,6 +911,172 @@ util_ping() {
     return $exit_status
 }
 
+# Description: Updates pacman mirrorlist using reflector (Arch Linux only).
+util_update_mirrors() {
+    # Display header with ASCII art
+    echo -e "${BOLD}${CYAN}"
+    echo "╔══════════════════════════════════════════════════════════════════════════════╗"
+    echo "║                        🪞 PACMAN MIRRORLIST UPDATER 🪞                        ║"
+    echo "╚══════════════════════════════════════════════════════════════════════════════╝"
+    echo -e "${NC}"
+    
+    # Step 1: System compatibility check
+    _step 1 "Checking system compatibility..."
+    sleep 0.5
+    if [[ "$package_manager" != "pacman" && "$package_manager" != "yay" ]]; then
+        _err "Mirror update is only available for Arch Linux systems (pacman/yay)."
+        return 1
+    fi
+    _success "Arch Linux system detected! 🐧"
+    
+    # Step 2: Check reflector installation
+    _step 2 "Checking reflector availability..."
+    sleep 0.5
+    if ! _require_command reflector "reflector"; then
+        _warning "reflector is not installed."
+        echo -e "${YELLOW}Would you like to install reflector? ${BOLD}(y/N):${NC} \c"
+        read -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            _step "2.1" "Installing reflector..."
+            _run_native_command "install" "reflector"
+        else
+            _err "reflector is required to update mirrors."
+            return 1
+        fi
+    fi
+    _success "reflector is available! 🔧"
+    
+    # Step 3: Create backup
+    _step 3 "Creating backup of current mirrorlist..."
+    local backup_file="/etc/pacman.d/mirrorlist.backup.$(date +%Y%m%d_%H%M%S)"
+    
+    # Show backup progress
+    _progress 1 3 "Preparing backup"
+    sleep 0.3
+    _progress 2 3 "Copying mirrorlist"
+    sleep 0.2
+    
+    if sudo cp /etc/pacman.d/mirrorlist "$backup_file" 2>/dev/null; then
+        _progress 3 3 "Backup complete"
+        _success "Backup created: ${BOLD}$(basename "$backup_file")${NC}"
+    else
+        _err "Failed to backup mirrorlist."
+        return 1
+    fi
+    
+    # Step 4: Fetch and rank mirrors
+    _step 4 "Fetching and ranking mirrors..."
+    echo -e "${CYAN}📡 Connecting to Arch Linux mirror servers...${NC}"
+    echo -e "${YELLOW}⏱️  This process may take 1-3 minutes depending on network speed${NC}"
+    echo
+    
+    # Start reflector in background with output capture
+    local temp_file=$(mktemp)
+    local error_file=$(mktemp)
+    
+    # Run reflector command in background
+    sudo reflector \
+        --verbose \
+        --latest 50 \
+        --protocol https \
+        --sort rate \
+        --save /etc/pacman.d/mirrorlist \
+        --download-timeout 5 \
+        --number 10 > "$temp_file" 2> "$error_file" &
+    
+    local reflector_pid=$!
+    
+    # Show animated progress while reflector runs
+    local progress_msgs=(
+        "🔍 Discovering available mirrors..."
+        "🌐 Testing mirror connectivity..."
+        "⚡ Measuring download speeds..."
+        "📊 Ranking by performance..."
+        "💾 Saving optimized mirrorlist..."
+    )
+    
+    local msg_index=0
+    local dots=""
+    while kill -0 $reflector_pid 2>/dev/null; do
+        if (( msg_index < ${#progress_msgs[@]} )); then
+            echo -ne "\r${CYAN}${progress_msgs[$msg_index]}${dots}${NC}   "
+            dots="${dots}."
+            if (( ${#dots} > 3 )); then
+                dots=""
+                msg_index=$((msg_index + 1))
+            fi
+        else
+            echo -ne "\r${CYAN}🔄 Finalizing configuration${dots}${NC}   "
+            dots="${dots}."
+            if (( ${#dots} > 3 )); then
+                dots=""
+            fi
+        fi
+        sleep 0.5
+    done
+    
+    # Clear the progress line
+    echo -ne "\r$(printf '%80s' ' ')\r"
+    
+    # Wait for reflector to complete and get exit status
+    wait $reflector_pid
+    local exit_status=$?
+    
+    # Step 5: Verify results
+    _step 5 "Verifying results..."
+    
+    if [ $exit_status -eq 0 ] && [ -f /etc/pacman.d/mirrorlist ] && [ -s /etc/pacman.d/mirrorlist ]; then
+        _success "Mirrorlist updated successfully! 🎉"
+        
+        echo -e "\n${BOLD}${GREEN}📋 Updated Mirrorlist Preview:${NC}"
+        echo -e "${BOLD}╭─────────────────────────────────────────────────────────────────────────────╮${NC}"
+        
+        # Show preview with line numbers
+        head -20 /etc/pacman.d/mirrorlist | nl -ba | while read line; do
+            echo -e "${CYAN}│${NC} $line"
+        done
+        
+        echo -e "${BOLD}╰─────────────────────────────────────────────────────────────────────────────╯${NC}"
+        
+        # Show summary statistics
+        local mirror_count=$(grep -c "^Server" /etc/pacman.d/mirrorlist)
+        echo -e "\n${BOLD}📊 Summary:${NC}"
+        echo -e "${GREEN}  ✓ Active mirrors: ${BOLD}$mirror_count${NC}"
+        echo -e "${GREEN}  ✓ Protocol: ${BOLD}HTTPS only${NC}"
+        echo -e "${GREEN}  ✓ Sorting: ${BOLD}By download speed${NC}"
+        echo -e "${GREEN}  ✓ Backup: ${BOLD}$(basename "$backup_file")${NC}"
+        
+        echo -e "\n${YELLOW}💡 ${BOLD}Tip:${NC} ${YELLOW}Run '${BOLD}xpac update${NC}${YELLOW}' to refresh package databases with new mirrors${NC}"
+        
+    else
+        _err "Failed to update mirrorlist."
+        
+        # Show error details if available
+        if [ -s "$error_file" ]; then
+            echo -e "\n${RED}Error details:${NC}"
+            cat "$error_file"
+        fi
+        
+        _warning "Restoring previous mirrorlist..."
+        if sudo cp "$backup_file" /etc/pacman.d/mirrorlist; then
+            _success "Previous mirrorlist restored successfully."
+        else
+            _err "Failed to restore backup! Please manually restore from: $backup_file"
+        fi
+        
+        # Cleanup
+        rm -f "$temp_file" "$error_file"
+        return 1
+    fi
+    
+    # Cleanup temporary files
+    rm -f "$temp_file" "$error_file"
+    
+    echo -e "\n${BOLD}${GREEN}🎊 Mirror update completed successfully! 🎊${NC}"
+    return 0
+}
+
 
 # --- Main Logic ---
 
@@ -939,6 +1176,7 @@ handle_main_action() {
     ip | net)                 util_ip ;;
     top)                      util_top "${args[@]}" ;;
     ping)                     util_ping ;;
+    update-mirrors | mirrors) util_update_mirrors ;;
     help | h)                 display_usage ;;
     version | v)              echo "xpac version $XPAC_VERSION" ;;
     *)                        selective_install_package "$action" "${args[@]}" ;;
