@@ -220,11 +220,12 @@ _progress() {
   fi
 }
 
-# Description: Advanced mirror testing animation with wave effects and colors.
+# Description: Advanced mirror testing animation with contextual messages.
 # Args: $1: PID of background process
 _mirror_animation() {
   local pid=$1
   local frame=0
+  local start_time=$(date +%s)
   
   # Smooth RGB color transition using 256-color palette
   local rgb_colors=(
@@ -266,11 +267,11 @@ _mirror_animation() {
   local msg_timer=0
   
   while kill -0 $pid 2>/dev/null; do
-    # Change message every 25 frames (5 seconds at 0.2s intervals)
-    if (( msg_timer >= 25 )); then
-      msg_index=$(( (msg_index + 1) % ${#messages[@]} ))
-      msg_timer=0
-    fi
+    local current_time=$(date +%s)
+    local elapsed_time=$((current_time - start_time))
+    
+    # Change message based on elapsed time (every 10 seconds)
+    msg_index=$((elapsed_time / 10 % ${#messages[@]}))
     
     # Clear line and move cursor to beginning
     echo -ne "\r\033[K"
@@ -284,13 +285,29 @@ _mirror_animation() {
     local color_idx=$((frame % ${#rgb_colors[@]}))
     echo -ne "${rgb_colors[$color_idx]}${spinner_chars[$spinner_idx]}${NC}"
     
-    # Show percentage progress (cycles through 0-100 smoothly)
-    local progress=$(( (frame * 2) % 101 ))
-    if (( progress <= 50 )); then
-      echo -ne " ${YELLOW}${progress}%${NC}"
-    else
-      echo -ne " ${GREEN}${progress}%${NC}"
-    fi
+    # Update counters
+    frame=$((frame + 1))
+    
+    sleep 0.2
+  done
+  
+  # Show completion
+  echo -ne "\r\033[K"
+  echo -ne "${messages[8]} ${GREEN}✓${NC}"
+  echo
+}
+    
+    # Clear line and move cursor to beginning
+    echo -ne "\r\033[K"
+    
+    # Current message
+    local current_msg="${messages[$msg_index]}"
+    echo -ne "${current_msg} "
+    
+    # RGB color cycling spinner
+    local spinner_idx=$((frame % ${#spinner_chars[@]}))
+    local color_idx=$((frame % ${#rgb_colors[@]}))
+    echo -ne "${rgb_colors[$color_idx]}${spinner_chars[$spinner_idx]}${NC}"
     
     # Update counters
     frame=$((frame + 1))
@@ -299,8 +316,11 @@ _mirror_animation() {
     sleep 0.2
   done
   
-  # Clear the animation line
+  # Show completion
   echo -ne "\r\033[K"
+  echo -ne "${messages[8]} ${GREEN}✓${NC}"
+  echo
+}
 }
 
 # Description: Prepends sudo to arguments if not root and not using yay.
@@ -1000,7 +1020,7 @@ util_update_mirrors() {
     # Display header with ASCII art
     echo -e "${BOLD}${CYAN}"
     echo "╔══════════════════════════════════════════════════════════════════════════════╗"
-    echo "║                        🪞 PACMAN MIRRORLIST UPDATER 🪞[Step 1]                         ║"
+    echo "║                        🪞 PACMAN MIRRORLIST UPDATER 🪞                       ║"
     echo "╚══════════════════════════════════════════════════════════════════════════════╝"
     echo -e "${NC}"
     
