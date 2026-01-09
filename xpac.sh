@@ -296,32 +296,6 @@ _mirror_animation() {
   echo -ne "${messages[8]} ${GREEN}✓${NC}"
   echo
 }
-    
-    # Clear line and move cursor to beginning
-    echo -ne "\r\033[K"
-    
-    # Current message
-    local current_msg="${messages[$msg_index]}"
-    echo -ne "${current_msg} "
-    
-    # RGB color cycling spinner
-    local spinner_idx=$((frame % ${#spinner_chars[@]}))
-    local color_idx=$((frame % ${#rgb_colors[@]}))
-    echo -ne "${rgb_colors[$color_idx]}${spinner_chars[$spinner_idx]}${NC}"
-    
-    # Update counters
-    frame=$((frame + 1))
-    msg_timer=$((msg_timer + 1))
-    
-    sleep 0.2
-  done
-  
-  # Show completion
-  echo -ne "\r\033[K"
-  echo -ne "${messages[8]} ${GREEN}✓${NC}"
-  echo
-}
-}
 
 # Description: Prepends sudo to arguments if not root and not using yay.
 # Args: $@: Command and arguments to potentially prefix with sudo.
@@ -430,6 +404,7 @@ System Utility Commands:
           -n <num>       Show specified number of processes (default 10)
           -f <pattern>   Filter processes by command name/args (case-insensitive)
   ping                   - Check network connectivity by pinging 8.8.8.8
+  governors, gov         - Show CPU frequency scaling governors in use
   update-mirrors, mirrors - Update pacman mirrorlist using reflector (Arch Linux only)
 
 Options:
@@ -1015,6 +990,71 @@ util_ping() {
     return $exit_status
 }
 
+# Description: Shows CPU frequency scaling governors in use.
+util_governors() {
+    echo "--- CPU Frequency Scaling Governors ---"
+    
+    local gov_path="/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor"
+    local available_path="/sys/devices/system/cpu/cpu0/cpufreq/scaling_available_governors"
+    
+    # Check if cpufreq is available
+    if [[ ! -d "/sys/devices/system/cpu/cpu0/cpufreq" ]]; then
+        _warning "CPU frequency scaling not available on this system."
+        _info "This may be because:"
+        _info "  - Running in a virtual machine"
+        _info "  - CPU doesn't support frequency scaling"
+        _info "  - cpufreq driver not loaded"
+        echo "---------------------------------------"
+        return 1
+    fi
+    
+    # Show available governors
+    if [[ -f "$available_path" ]]; then
+        printf "Available governors:\t%s\n" "$(cat "$available_path")"
+    fi
+    
+    # Show current governor for each CPU
+    echo ""
+    echo "Current governors per CPU:"
+    local cpu_count=0
+    local governors_summary=""
+    
+    for cpu_dir in /sys/devices/system/cpu/cpu[0-9]*; do
+        local cpu_name=$(basename "$cpu_dir")
+        local cpu_gov_path="$cpu_dir/cpufreq/scaling_governor"
+        
+        if [[ -f "$cpu_gov_path" ]]; then
+            local current_gov=$(cat "$cpu_gov_path")
+            printf "  %-8s %s\n" "$cpu_name:" "$current_gov"
+            cpu_count=$((cpu_count + 1))
+            
+            # Track unique governors
+            if [[ ! "$governors_summary" =~ "$current_gov" ]]; then
+                if [[ -n "$governors_summary" ]]; then
+                    governors_summary="$governors_summary, $current_gov"
+                else
+                    governors_summary="$current_gov"
+                fi
+            fi
+        fi
+    done
+    
+    echo ""
+    printf "Total CPUs:\t\t%d\n" "$cpu_count"
+    printf "Governors in use:\t%s\n" "$governors_summary"
+    
+    # Show current frequency if available
+    local freq_path="/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq"
+    if [[ -f "$freq_path" ]]; then
+        local cur_freq=$(cat "$freq_path")
+        local cur_freq_mhz=$((cur_freq / 1000))
+        printf "CPU0 current freq:\t%d MHz\n" "$cur_freq_mhz"
+    fi
+    
+    echo "---------------------------------------"
+    return 0
+}
+
 # Description: Updates pacman mirrorlist using reflector (Arch Linux only).
 util_update_mirrors() {
     # Display header with ASCII art
@@ -1256,6 +1296,7 @@ handle_main_action() {
     ip | net)                 util_ip ;;
     top)                      util_top "${args[@]}" ;;
     ping)                     util_ping ;;
+    governors | gov)          util_governors ;;
     update-mirrors | mirrors) util_update_mirrors ;;
     help | h)                 display_usage ;;
     version | v)              echo "xpac version $XPAC_VERSION" ;;
