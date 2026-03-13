@@ -1,209 +1,144 @@
 # xpac - Cross-Distro Package Manager
 
-`xpac` is a simple yet powerful wrapper tool designed to unify and streamline package management and common system utility tasks across different Linux distributions and environments like FreeBSD or Termux. With `xpac`, you can manage your system packages and check system status using the same intuitive commands, no matter which compatible OS you're on.
+**Version: 0.2.0**
 
-Whether you’re a seasoned user juggling multiple systems, migrating to a new distro, or simply prefer a familiar interface, `xpac` makes it easier to install, update, remove software, and query system status with consistent commands.
+`xpac` is a unified package management wrapper that provides consistent commands across different Linux distributions and environments like FreeBSD or Termux. Manage packages and check system status with the same intuitive commands, regardless of the underlying OS.
+
+## Quick Start
+
+```bash
+git clone https://github.com/byomess/xpac.git
+cd xpac && ./install.sh
+
+xpac install vim git       # Install packages
+xpac search firefox        # Search for packages
+xpac update-upgrade        # Update & upgrade everything
+xpac sysinfo               # Show system information
+xpac top -s mem -n 5       # Top 5 processes by memory
+xpac                       # No args = update-upgrade
+```
 
 ## Features
 
-- **Unified Command Interface**: Use the same commands to manage packages and run common utilities, regardless of the underlying package manager (e.g., `apt`, `yum`, `dnf`, `pacman`, `zypper`, `pkg`).
-- **Cross-System Compatibility**: Supports multiple popular Linux distributions and other systems like FreeBSD/Termux, making it a great choice for users who switch environments frequently.
-- **System Utility Commands**: Access common system information (disk, memory, CPU, network) and perform simple tasks (`ping`, `top`) with unified commands.
-- **Dependency Handling**: For utility commands, `xpac` can check for required tools and prompt to install them if missing (where supported).
-- **Familiarity**: For users familiar with a specific distro’s package manager, `xpac` provides a consistent interface, reducing the learning curve when migrating.
-- **Simplicity**: Focus on the task at hand — managing packages or checking system status — without worrying about remembering specific flags for different native tools.
+- **Unified Commands** — Same interface for `apt`, `dnf`, `pacman`, `yum`, `zypper`, `pkg`, and `yay`.
+- **Cross-System** — Works across Debian, Fedora, Arch, openSUSE, FreeBSD, Termux, and more.
+- **System Utilities** — Built-in commands for disk, memory, CPU, network, top processes, and more.
+- **Auto Dependency Handling** — Detects missing tools and offers to install them automatically.
+- **Internal Packages** — Bundled setup/teardown scripts for tools not in standard repos (Oh My Zsh, xcb, etc.).
 
-## Supported Systems & Package Managers
+## Supported Package Managers
 
-`xpac` currently supports the following package managers:
-
-- **APT**: Debian, Ubuntu, Linux Mint, Pop!_OS, etc.
-- **DNF**: Fedora, RHEL (8+), CentOS Stream (8+), etc.
-- **Pacman**: Arch Linux, Manjaro, EndeavourOS, etc.
-- **YUM**: RHEL (7), CentOS (7), older Fedora versions.
-- **Zypper**: openSUSE, SUSE Linux Enterprise.
-- **Pkg**: FreeBSD, GhostBSD, Termux (Android), etc.
-- **Yay**: Arch Linux AUR Helper (priority over Pacman if installed).
+| Package Manager | Distributions |
+|-----------------|---------------|
+| **APT** | Debian, Ubuntu, Linux Mint, Pop!_OS, etc. |
+| **DNF** | Fedora, RHEL 8+, CentOS Stream 8+, etc. |
+| **Pacman** | Arch Linux, Manjaro, EndeavourOS, etc. |
+| **Yay** | Arch Linux AUR helper (used over Pacman if installed) |
+| **YUM** | RHEL 7, CentOS 7, older Fedora |
+| **Zypper** | openSUSE, SUSE Linux Enterprise |
+| **Pkg** | FreeBSD, GhostBSD, Termux (Android) |
 
 ## Installation
 
-### Using the Install Script
+```bash
+git clone https://github.com/byomess/xpac.git
+cd xpac
+./install.sh
+```
 
-You can install `xpac` by cloning the repository and using the provided installation script.
-
-1.  Clone the repository (make sure you have `git` installed):
-    ```bash
-    git clone https://github.com/byomess/xpac.git
-    ```
-2.  Navigate into the directory and run the installation script:
-    ```bash
-    cd xpac
-    sudo ./install.sh
-    # Use sudo if installing system-wide (e.g., to /usr/local/bin)
-    # Omit sudo if installing to a user directory handled by the script
-    ```
+- **Without `sudo`**: installs to `~/.local/bin` and `~/.local/share` (user-space). The script adds `~/.local/bin` to your `PATH` if needed.
+- **With `sudo`**: installs to `/usr/local/bin` and `/usr/local/share` (system-wide).
 
 ## Usage
 
-Once installed, use `xpac` followed by a command and arguments.
-
 ### Package Management
 
-- **Install a package**:
-  ```bash
-  xpac install <package-name> [package-name...]
-  # Aliases: i, add
-  ```
+| Command | Aliases | Description |
+|---------|---------|-------------|
+| `xpac install <pkg...>` | `i`, `add` | Install package(s) |
+| `xpac remove <pkg...>` | `rm`, `del` | Remove package(s) |
+| `xpac purge <pkg...>` | `pu`, `p` | Remove package(s) and config files |
+| `xpac search <query>` | `s`, `find`, `f` | Search available packages |
+| `xpac search-installed <query>` | `si` | Search installed packages |
+| `xpac update` | `ud` | Update package list |
+| `xpac upgrade` | `ug` | Upgrade all packages |
+| `xpac update-upgrade` | `uu` | Update list + upgrade all (default action) |
+| `xpac list` | `ls`, `l` | List all available packages |
+| `xpac list-installed` | `li` | List installed packages |
+| `xpac list-files <pkg>` | `lf` | List files owned by a package |
+| `xpac list-commands <pkg>` | `lc` | List binaries provided by a package |
+| `xpac show <pkg>` | `sh`, `info`, `inf` | Show package details |
+| `xpac clean-cache` | `cc` | Clean package manager cache |
+| `xpac autoremove` | `ar` | Remove unused dependencies |
 
-- **Remove a package**:
-  ```bash
-  xpac remove <package-name> [package-name...]
-  # Aliases: rm, del
-  ```
+### System Utilities
 
-- **Purge a package** (remove config files too; falls back to 'remove' if unsupported):
-  ```bash
-  xpac purge <package-name> [package-name...]
-  # Aliases: pu, p
-  ```
+| Command | Aliases | Description |
+|---------|---------|-------------|
+| `xpac sysinfo` | | Distro, kernel, architecture, hostname, uptime |
+| `xpac disk` | `df` | Disk usage for mounted filesystems |
+| `xpac memory` | `mem` | RAM and swap usage |
+| `xpac cpuinfo` | `cpu` | CPU model, core count, load average |
+| `xpac ip` | `net` | IP addresses for active interfaces |
+| `xpac ping` | | Network connectivity test (pings 8.8.8.8) |
+| `xpac top [opts]` | | Top processes (see options below) |
+| `xpac governors` | `gov` | CPU frequency scaling governors |
+| `xpac update-mirrors` | `mirrors` | Update pacman mirrorlist via reflector (Arch only) |
 
-- **Search for available packages**:
-  ```bash
-  xpac search <query>
-  # Aliases: s, find, f
-  ```
+#### `top` Options
 
-- **Search within installed packages**:
-  ```bash
-  xpac search-installed <query>
-  # Aliases: si
-  ```
+| Option | Description |
+|--------|-------------|
+| `-s <key>` | Sort by: `cpu` (default), `mem`, `pid`, `user`, `start_time`, `time` |
+| `-n <num>` | Number of processes to show (default: 10) |
+| `-f <pattern>` | Filter by command name (case-insensitive) |
 
-- **Update package list**:
-  ```bash
-  xpac update
-  # Aliases: ud
-  ```
+```bash
+xpac top                     # Top 10 by CPU
+xpac top -s mem -n 5         # Top 5 by memory
+xpac top -f firefox          # Filter by 'firefox'
+xpac top -s pid -f sshd      # Sort by PID, filter by 'sshd'
+```
 
-- **Upgrade all packages**:
-  ```bash
-  xpac upgrade
-  # Aliases: ug
-  ```
+### Other
 
-- **Update package list AND upgrade all packages**:
-  ```bash
-  xpac update-upgrade
-  # Aliases: uu
-  ```
+| Command | Aliases |
+|---------|---------|
+| `xpac --help` | `-h`, `help`, `h` |
+| `xpac --version` | `-v`, `version`, `v` |
 
-- **List all available packages** (can be very long!):
-  ```bash
-  xpac list
-  # Aliases: ls, l
-  ```
+## Internal Packages
 
-- **List installed packages**:
-  ```bash
-  xpac list-installed
-  # Aliases: li
-  ```
+`xpac` supports "internal packages" — bundled setup/teardown scripts for tools not available through standard package managers. When installing or removing, `xpac` automatically dispatches to the internal script if one exists.
 
-- **List files owned by an installed package**:
-  ```bash
-  xpac list-files <package-name>
-  # Aliases: lf
-  ```
+| Package | Description |
+|---------|-------------|
+| `omz` | [Oh My Zsh](https://ohmyz.sh/) — Zsh configuration framework |
+| `xcb` | [xcb](https://github.com/byomess/xcb) — clipboard utility wrapper |
+| `lazymux` | [Lazymux](https://github.com/Gameye98/Lazymux) — Termux tool installer |
 
-- **List commands (binaries) provided by an installed package**:
-  ```bash
-  xpac list-commands <package-name>
-  # Aliases: lc
-  ```
+```bash
+xpac install omz       # Installs Oh My Zsh via its setup script
+xpac remove omz        # Uninstalls Oh My Zsh via its teardown script
+xpac install vim omz   # Mix: vim via package manager, omz via internal script
+```
 
-- **Show package details/information**:
-  ```bash
-  xpac show <package-name>
-  # Aliases: sh, info, inf
-  ```
+## Uninstallation
 
-- **Clean package manager cache**:
-  ```bash
-  xpac clean-cache
-  # Aliases: cc
-  ```
+```bash
+cd xpac
+./uninstall.sh          # user-space install
+sudo ./uninstall.sh     # system-wide install
+```
 
-- **Remove unused dependencies (autoremove)**:
-  ```bash
-  xpac autoremove
-  # Aliases: ar
-  ```
-
-### System Utility Commands
-
-- **Show system information**: Displays distribution, kernel, architecture, hostname, uptime, etc.
-  ```bash
-  xpac sysinfo
-  ```
-
-- **Show disk usage**: Lists mounted filesystems and their usage (like `df -h`).
-  ```bash
-  xpac disk
-  # Alias: df
-  ```
-
-- **Show memory usage**: Displays RAM and swap usage (like `free -h`).
-  ```bash
-  xpac memory
-  # Alias: mem
-  ```
-
-- **Show CPU information**: Displays CPU model, core count, and load average.
-  ```bash
-  xpac cpuinfo
-  # Alias: cpu
-  ```
-
-- **Show IP addresses**: Lists IP addresses for active network interfaces.
-  ```bash
-  xpac ip
-  # Alias: net
-  ```
-
-- **Show top processes**: Lists processes consuming the most resources.
-  ```bash
-  xpac top [options]
-  # Options:
-  #   -s <key>  Sort by key (cpu[default], mem, pid, user, start_time, time)
-  #   -n <num>  Show <num> processes (default 10)
-  #   -f <pat>  Filter command by case-insensitive <pattern>
-  # Example: xpac top -s mem -n 5 -f firefox
-  ```
-
-- **Check network connectivity**: Pings a reliable external host (8.8.8.8).
-  ```bash
-  xpac ping
-  ```
-
----
-
-Use `xpac --help` to see the full list of commands and options available in your installed version.
-
-## Why xpac?
-
-- **Consistency**: No need to memorize different commands for each package manager or utility.
-- **Flexibility**: Works across a variety of Linux distributions and other compatible systems.
-- **Efficiency**: Simplifies common tasks with easy-to-remember commands.
-- **Ease of Migration**: Helps maintain a consistent workflow when switching between systems.
+Removes the `xpac` binary, data directory, and any PATH modifications made during installation.
 
 ## Contributing
 
-We welcome contributions to `xpac`! If you have a bug fix, feature request, want to add support for another package manager, or improve the project, feel free to fork the repo, make changes, and submit a pull request.
+Contributions are welcome! Fork the repo, make changes, and submit a pull request.
 
-### Issues and Feedback
-
-If you encounter any issues, or if you have suggestions or feedback, please open an issue in the [GitHub Issues](https://github.com/byomess/xpac/issues) section.
+If you find a bug or have a suggestion, open an issue on [GitHub Issues](https://github.com/byomess/xpac/issues).
 
 ## License
 
-`xpac` is open source and available under the [MIT License](LICENSE).
+[MIT License](LICENSE)
