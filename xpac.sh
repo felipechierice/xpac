@@ -39,8 +39,8 @@
 
 # --- Constants ---
 readonly XPAC_VERSION="0.2.0"
-readonly XPAC_HOME="$(dirname "$0")/../share/xpac"                  		# Path to xpac's shared directory.
-readonly INTERNAL_PACKAGES_FILE="$XPAC_HOME/internal_packages.json" 		# Path to the JSON file listing internal packages.
+readonly XPAC_REAL_PATH="$(readlink -f "$0")"
+readonly XPAC_HOME="$(dirname "$XPAC_REAL_PATH")/../share/xpac"     		# Path to xpac's shared directory.
 readonly INTERNAL_PACKAGES_DIR="$XPAC_HOME/internal_packages"       		# Directory for internal packages.
 readonly INTERNAL_PACKAGES_SETUP_DIR="$INTERNAL_PACKAGES_DIR/setup"   		# Directory for internal package setup scripts.
 readonly INTERNAL_PACKAGES_TEARDOWN_DIR="$INTERNAL_PACKAGES_DIR/teardown" 	# Directory for internal package teardown scripts.
@@ -49,92 +49,41 @@ readonly INTERNAL_PACKAGES_TEARDOWN_DIR="$INTERNAL_PACKAGES_DIR/teardown" 	# Dir
 declare package_manager="" # Detected package manager (e.g., apt, pacman).
 declare distro_name=""     # Detected Linux distribution name.
 declare -A dep_map         # Associative array for dependency package names
+declare DRY_RUN=0          # When 1, show commands without executing them.
+declare QUIET=0            # When 1, suppress informational messages.
 
 # --- Dependency Package Name Mappings ---
-# Format: dep_map[command,package_manager]=package_name
-dep_map[ping,apt]="iputils-ping"
-dep_map[ping,pacman]="inetutils"
-dep_map[ping,dnf]="iputils"
-dep_map[ping,yum]="iputils"
-dep_map[ping,zypper]="iputils"
-dep_map[ping,pkg]="inetutils"
+# Helper: _dep "cmd" "default_pkg" ["manager=override_pkg" ...]
+_dep() {
+    local cmd="$1" default="$2"; shift 2
+    local -A overrides=()
+    for arg in "$@"; do
+        local mgr="${arg%%=*}" pkg="${arg#*=}"
+        overrides["$mgr"]="$pkg"
+    done
+    for mgr in apt pacman dnf yum zypper pkg; do
+        if [[ -v "overrides[$mgr]" ]]; then
+            dep_map["$cmd,$mgr"]="${overrides[$mgr]}"
+        else
+            dep_map["$cmd,$mgr"]="$default"
+        fi
+    done
+}
 
-dep_map[hostname,apt]="hostname"
-dep_map[hostname,pacman]="inetutils"
-dep_map[hostname,dnf]="hostname"
-dep_map[hostname,yum]="hostname"
-dep_map[hostname,zypper]="hostname"
-dep_map[hostname,pkg]="inetutils"
+_dep ping     "iputils"    "apt=iputils-ping"  "pacman=inetutils"                                 "pkg=inetutils"
+_dep hostname "hostname"                        "pacman=inetutils"                                 "pkg=inetutils"
+_dep ip       "iproute2"
+_dep ifconfig "net-tools"
+_dep lscpu    "util-linux"
+_dep free     "procps"                          "pacman=procps-ng" "dnf=procps-ng" "yum=procps-ng" "pkg=procps-ng"
+_dep uptime   "procps"                          "pacman=procps-ng" "dnf=procps-ng" "yum=procps-ng" "pkg=procps-ng"
+_dep ps       "procps"                          "pacman=procps-ng" "dnf=procps-ng" "yum=procps-ng" "pkg=procps-ng"
+_dep df       "coreutils"
+_dep uname    "coreutils"
+_dep rpm      "rpm"                             "pacman=rpm-tools"                                 "pkg="
+_dep dpkg     "dpkg"                            "pacman="          "dnf="          "yum="  "zypper=" "pkg="
 
-dep_map[ip,apt]="iproute2"
-dep_map[ip,pacman]="iproute2"
-dep_map[ip,dnf]="iproute2"
-dep_map[ip,yum]="iproute2"
-dep_map[ip,zypper]="iproute2"
-dep_map[ip,pkg]="iproute2"
-
-dep_map[ifconfig,apt]="net-tools"
-dep_map[ifconfig,pacman]="net-tools"
-dep_map[ifconfig,dnf]="net-tools"
-dep_map[ifconfig,yum]="net-tools"
-dep_map[ifconfig,zypper]="net-tools"
-dep_map[ifconfig,pkg]="net-tools"
-
-dep_map[lscpu,apt]="util-linux"
-dep_map[lscpu,pacman]="util-linux"
-dep_map[lscpu,dnf]="util-linux"
-dep_map[lscpu,yum]="util-linux"
-dep_map[lscpu,zypper]="util-linux"
-dep_map[lscpu,pkg]="util-linux"
-
-dep_map[free,apt]="procps"
-dep_map[free,pacman]="procps-ng"
-dep_map[free,dnf]="procps-ng"
-dep_map[free,yum]="procps-ng"
-dep_map[free,zypper]="procps"
-dep_map[free,pkg]="procps-ng"
-
-dep_map[uptime,apt]="procps"
-dep_map[uptime,pacman]="procps-ng"
-dep_map[uptime,dnf]="procps-ng"
-dep_map[uptime,yum]="procps-ng"
-dep_map[uptime,zypper]="procps"
-dep_map[uptime,pkg]="procps-ng"
-
-dep_map[ps,apt]="procps"
-dep_map[ps,pacman]="procps-ng"
-dep_map[ps,dnf]="procps-ng"
-dep_map[ps,yum]="procps-ng"
-dep_map[ps,zypper]="procps"
-dep_map[ps,pkg]="procps-ng"
-
-dep_map[df,apt]="coreutils"
-dep_map[df,pacman]="coreutils"
-dep_map[df,dnf]="coreutils"
-dep_map[df,yum]="coreutils"
-dep_map[df,zypper]="coreutils"
-dep_map[df,pkg]="coreutils"
-
-dep_map[uname,apt]="coreutils"
-dep_map[uname,pacman]="coreutils"
-dep_map[uname,dnf]="coreutils"
-dep_map[uname,yum]="coreutils"
-dep_map[uname,zypper]="coreutils"
-dep_map[uname,pkg]="coreutils"
-
-dep_map[rpm,apt]="rpm"
-dep_map[rpm,pacman]="rpm-tools"
-dep_map[rpm,dnf]="rpm"
-dep_map[rpm,yum]="rpm"
-dep_map[rpm,zypper]="rpm"
-dep_map[rpm,pkg]=""
-
-dep_map[dpkg,apt]="dpkg"
-dep_map[dpkg,pacman]=""
-dep_map[dpkg,dnf]=""
-dep_map[dpkg,yum]=""
-dep_map[dpkg,zypper]=""
-dep_map[dpkg,pkg]=""
+unset -f _dep
 
 
 # --- Helper Functions ---
@@ -146,7 +95,6 @@ readonly YELLOW='\033[0;33m'
 readonly BLUE='\033[0;34m'
 readonly PURPLE='\033[0;35m'
 readonly CYAN='\033[0;36m'
-readonly WHITE='\033[0;37m'
 readonly BOLD='\033[1m'
 readonly NC='\033[0m' # No Color
 
@@ -159,12 +107,14 @@ _err() {
 # Description: Prints an info message to stdout with blue color.
 # Args: $*: The message components.
 _info() {
+  [[ "$QUIET" -eq 1 ]] && return 0
   echo -e "${BLUE}ℹ Info:${NC} $*"
 }
 
 # Description: Prints a success message with green color.
 # Args: $*: The message components.
 _success() {
+  [[ "$QUIET" -eq 1 ]] && return 0
   echo -e "${GREEN}✓ Success:${NC} $*"
 }
 
@@ -177,26 +127,10 @@ _warning() {
 # Description: Prints a step message with purple color and step number.
 # Args: $1: Step number, $2: Total steps, $*: The message components.
 _step() {
+  [[ "$QUIET" -eq 1 ]] && return 0
   local step_num="$1"; shift
   local total_steps="$1"; shift
   echo -e "${PURPLE}${BOLD}[Step $step_num/$total_steps]${NC} $*"
-}
-
-# Description: Shows a spinner animation while a command runs.
-# Args: $1: PID of background process, $2: Message to show
-_spinner() {
-  local pid=$1
-  local msg="${2:-Processing}"
-  local spin='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
-  local i=0
-  
-  echo -n -e "${CYAN}${msg}${NC} "
-  while kill -0 $pid 2>/dev/null; do
-    printf "\b${spin:$i:1}"
-    i=$(( (i+1) % ${#spin} ))
-    sleep 0.1
-  done
-  printf "\b "
 }
 
 # Description: Shows progress bar animation.
@@ -264,9 +198,8 @@ _mirror_animation() {
   )
   
   local msg_index=0
-  local msg_timer=0
-  
-  while kill -0 $pid 2>/dev/null; do
+
+  while kill -0 "$pid" 2>/dev/null; do
     local current_time=$(date +%s)
     local elapsed_time=$((current_time - start_time))
     
@@ -410,6 +343,8 @@ System Utility Commands:
 Options:
   -h, --help             - Show this help message
   -v, --version          - Show version information
+  --dry-run              - Show what command would run, without executing
+  -q, --quiet            - Suppress informational messages (errors and warnings still shown)
 
 Examples:
   xpac install firefox
@@ -426,7 +361,7 @@ Examples:
 
 For more information, see: https://github.com/byomess/xpac
 EOF
-  exit 0
+  return 0
 }
 
 
@@ -479,6 +414,141 @@ uninstall_internal_package() {
 # Args: $1: xpac_action (e.g., install, remove, update)
 #       $@: arguments for the action (e.g., package names)
 # Returns: Exit status of the native command.
+
+# Per-package-manager command mapping functions.
+# Args: $1=nameref for cmd_parts, $2=nameref for needs_sudo, $3=nameref for suppress_exit_code,
+#       $4=xpac_action, $@=args
+_map_cmd_pacman() {
+    local -n __parts=$1 __sudo=$2 __suppress=$3
+    local action="$4"; shift 4
+    local args=("$@")
+    case "$action" in
+        install)          __parts=(pacman -S --needed --noconfirm "${args[@]}"); __sudo=1 ;;
+        remove)           __parts=(pacman -R --noconfirm "${args[@]}"); __sudo=1 ;;
+        purge)            __parts=(pacman -Rns --noconfirm "${args[@]}"); __sudo=1 ;;
+        search)           __parts=(pacman -Ss "${args[@]}") ;;
+        search-installed) __parts=(pacman -Qs "${args[@]}") ;;
+        update)           __parts=(pacman -Sy); __sudo=1 ;;
+        upgrade)          __parts=(pacman -Syu --noconfirm); __sudo=1 ;;
+        list)             __parts=(pacman -Sl) ;;
+        list-installed)   __parts=(pacman -Qe) ;;
+        list-files)       __parts=(pacman -Ql "${args[@]}") ;;
+        show)             __parts=(pacman -Si "${args[@]}") ;;
+        clean-cache)      __parts=(pacman -Sc --noconfirm); __sudo=1 ;;
+        *) _err "Xpac action '$action' not implemented for pacman."; return 1 ;;
+    esac
+}
+
+_map_cmd_yay() {
+    local -n __parts=$1 __sudo=$2 __suppress=$3
+    local action="$4"; shift 4
+    local args=("$@")
+    __sudo=0
+    case "$action" in
+        install)          __parts=(yay -S --needed --noconfirm "${args[@]}") ;;
+        remove)           __parts=(yay -R --noconfirm "${args[@]}") ;;
+        purge)            __parts=(yay -Rns --noconfirm "${args[@]}") ;;
+        search)           __parts=(yay -Ss "${args[@]}") ;;
+        search-installed) __parts=(pacman -Qs "${args[@]}") ;;
+        update)           __parts=(yay -Sy) ;;
+        upgrade)          __parts=(yay -Syu --noconfirm) ;;
+        list)             __parts=(yay -Sl) ;;
+        list-installed)   __parts=(yay -Qe) ;;
+        list-files)       __parts=(yay -Ql "${args[@]}") ;;
+        show)             __parts=(yay -Si "${args[@]}") ;;
+        clean-cache)      __parts=(yay -Sc --noconfirm) ;;
+        autoremove)       __parts=(yay -Yc --noconfirm) ;;
+        *) _err "Xpac action '$action' not implemented for yay."; return 1 ;;
+    esac
+}
+
+_map_cmd_apt() {
+    local -n __parts=$1 __sudo=$2 __suppress=$3
+    local action="$4"; shift 4
+    local args=("$@")
+    case "$action" in
+        install)        __parts=(apt-get install -y "${args[@]}"); __sudo=1 ;;
+        remove)         __parts=(apt-get remove -y "${args[@]}"); __sudo=1 ;;
+        purge)          __parts=(apt-get purge -y "${args[@]}"); __sudo=1 ;;
+        search)         __parts=(apt-cache search --names-only "${args[@]}") ;;
+        update)         __parts=(apt-get update); __sudo=1 ;;
+        upgrade)        __parts=(apt-get upgrade -y); __sudo=1 ;;
+        list)           __parts=(apt-cache pkgnames) ;;
+        list-installed) __parts=(apt list --installed) ;;
+        list-files)     if _require_command dpkg "dpkg utility"; then __parts=(dpkg -L "${args[@]}"); else return 1; fi ;;
+        show)           __parts=(apt-cache show "${args[@]}") ;;
+        clean-cache)    __parts=(apt-get clean); __sudo=1 ;;
+        autoremove)     __parts=(apt-get autoremove -y); __sudo=1 ;;
+        *) _err "Xpac action '$action' not implemented for apt."; return 1 ;;
+    esac
+}
+
+_map_cmd_dnf_yum() {
+    local -n __parts=$1 __sudo=$2 __suppress=$3
+    local action="$4"; shift 4
+    local args=("$@")
+    local mgr_cmd="$package_manager"
+    case "$action" in
+        install)          __parts=("$mgr_cmd" install -y "${args[@]}"); __sudo=1 ;;
+        remove)           __parts=("$mgr_cmd" remove -y "${args[@]}"); __sudo=1 ;;
+        purge)            _info "'purge' not distinct for $mgr_cmd; using remove."; __parts=("$mgr_cmd" remove -y "${args[@]}"); __sudo=1 ;;
+        search)           __parts=("$mgr_cmd" search "${args[@]}") ;;
+        search-installed) __parts=("$mgr_cmd" list installed "${args[@]}") ;;
+        update)           __parts=("$mgr_cmd" check-update); __suppress=1; __sudo=1 ;;
+        upgrade)          __parts=("$mgr_cmd" upgrade -y); __sudo=1 ;;
+        list)             __parts=("$mgr_cmd" list available) ;;
+        list-installed)   __parts=("$mgr_cmd" list installed) ;;
+        list-files)       if _require_command rpm "rpm utility"; then __parts=(rpm -ql "${args[@]}"); else return 1; fi ;;
+        show)             __parts=("$mgr_cmd" info "${args[@]}") ;;
+        clean-cache)      __parts=("$mgr_cmd" clean all); __sudo=1 ;;
+        autoremove)       __parts=("$mgr_cmd" autoremove -y); __sudo=1 ;;
+        *) _err "Xpac action '$action' not implemented for $mgr_cmd."; return 1 ;;
+    esac
+}
+
+_map_cmd_zypper() {
+    local -n __parts=$1 __sudo=$2 __suppress=$3
+    local action="$4"; shift 4
+    local args=("$@")
+    case "$action" in
+        install)          __parts=(zypper --non-interactive install "${args[@]}"); __sudo=1 ;;
+        remove)           __parts=(zypper --non-interactive remove "${args[@]}"); __sudo=1 ;;
+        purge)            _info "'purge' not distinct for zypper; using remove."; __parts=(zypper --non-interactive remove "${args[@]}"); __sudo=1 ;;
+        search)           __parts=(zypper search "${args[@]}") ;;
+        search-installed) __parts=(zypper search --installed-only "${args[@]}") ;;
+        update)           __parts=(zypper refresh); __sudo=1 ;;
+        upgrade)          __parts=(zypper --non-interactive update); __sudo=1 ;;
+        list)             __parts=(zypper search --type package) ;;
+        list-installed)   __parts=(zypper search --installed-only --type package) ;;
+        list-files)       if _require_command rpm "rpm utility"; then __parts=(rpm -ql "${args[@]}"); else return 1; fi ;;
+        show)             __parts=(zypper info "${args[@]}") ;;
+        clean-cache)      __parts=(zypper clean --all); __sudo=1 ;;
+        autoremove)       __parts=(zypper remove --clean-deps --non-interactive); __sudo=1 ;;
+        *) _err "Xpac action '$action' not implemented for zypper."; return 1 ;;
+    esac
+}
+
+_map_cmd_pkg() {
+    local -n __parts=$1 __sudo=$2 __suppress=$3
+    local action="$4"; shift 4
+    local args=("$@")
+    case "$action" in
+        install)        __parts=(pkg install -y "${args[@]}"); __sudo=1 ;;
+        remove)         __parts=(pkg remove -y "${args[@]}"); __sudo=1 ;;
+        purge)          _info "'purge' not distinct for pkg; using remove."; __parts=(pkg remove -y "${args[@]}"); __sudo=1 ;;
+        search)         __parts=(pkg search "${args[@]}") ;;
+        update)         __parts=(pkg update); __sudo=1 ;;
+        upgrade)        __parts=(pkg upgrade -y); __sudo=1 ;;
+        list)           __parts=(pkg rquery "%n-%v") ;;
+        list-installed) __parts=(pkg query "%n-%v") ;;
+        list-files)     __parts=(pkg info -l "${args[@]}") ;;
+        show)           __parts=(pkg info "${args[@]}") ;;
+        clean-cache)    __parts=(pkg clean -y); __sudo=1 ;;
+        autoremove)     __parts=(pkg autoremove -y); __sudo=1 ;;
+        *) _err "Xpac action '$action' not implemented for pkg."; return 1 ;;
+    esac
+}
+
 _run_native_command() {
     local xpac_action="$1"; shift
     local args=("$@")
@@ -492,113 +562,12 @@ _run_native_command() {
     esac
 
     case "$package_manager" in
-        pacman)
-            case "$xpac_action" in
-                install)        native_cmd_parts=(pacman -S --needed --noconfirm "${args[@]}"); needs_sudo=1 ;;
-                remove)         native_cmd_parts=(pacman -R --noconfirm "${args[@]}"); needs_sudo=1 ;;
-                purge)          native_cmd_parts=(pacman -Rns --noconfirm "${args[@]}"); needs_sudo=1 ;;
-                search)         native_cmd_parts=(pacman -Ss "${args[@]}") ;;
-                search-installed) native_cmd_parts=(pacman -Qs "${args[@]}") ;;
-                update)         native_cmd_parts=(pacman -Sy); needs_sudo=1 ;;
-                upgrade)        native_cmd_parts=(pacman -Syu --noconfirm); needs_sudo=1 ;;
-                list)           native_cmd_parts=(pacman -Sl) ;;
-                list-installed) native_cmd_parts=(pacman -Qe) ;;
-                list-files)     native_cmd_parts=(pacman -Ql "${args[@]}") ;;
-                show)           native_cmd_parts=(pacman -Si "${args[@]}") ;;
-                clean-cache)    native_cmd_parts=(pacman -Sc --noconfirm); needs_sudo=1 ;;
-                *) _err "Xpac action '$xpac_action' not implemented for pacman."; return 1 ;;
-            esac
-            ;;
-        yay)
-            needs_sudo=0
-            case "$xpac_action" in
-                install)        native_cmd_parts=(yay -S --needed --noconfirm "${args[@]}") ;;
-                remove)         native_cmd_parts=(yay -R --noconfirm "${args[@]}") ;;
-                purge)          native_cmd_parts=(yay -Rns --noconfirm "${args[@]}") ;;
-                search)         native_cmd_parts=(yay -Ss "${args[@]}") ;;
-                search-installed) native_cmd_parts=(pacman -Qs "${args[@]}") ;;
-                update)         native_cmd_parts=(yay -Sy) ;;
-                upgrade)        native_cmd_parts=(yay -Syu --noconfirm) ;;
-                list)           native_cmd_parts=(yay -Sl) ;;
-                list-installed) native_cmd_parts=(yay -Qe) ;;
-                list-files)     native_cmd_parts=(yay -Ql "${args[@]}") ;;
-                show)           native_cmd_parts=(yay -Si "${args[@]}") ;;
-                clean-cache)    native_cmd_parts=(yay -Sc --noconfirm) ;;
-                autoremove)     native_cmd_parts=(yay -Yc --noconfirm) ;;
-                *) _err "Xpac action '$xpac_action' not implemented for yay."; return 1 ;;
-            esac
-            ;;
-        apt)
-            case "$xpac_action" in
-                install)        native_cmd_parts=(apt-get install -y "${args[@]}"); needs_sudo=1 ;;
-                remove)         native_cmd_parts=(apt-get remove -y "${args[@]}"); needs_sudo=1 ;;
-                purge)          native_cmd_parts=(apt-get purge -y "${args[@]}"); needs_sudo=1 ;;
-                search)         native_cmd_parts=(apt-cache search --names-only "${args[@]}") ;;
-                update)         native_cmd_parts=(apt-get update); needs_sudo=1 ;;
-                upgrade)        native_cmd_parts=(apt-get upgrade -y); needs_sudo=1 ;;
-                list)           native_cmd_parts=(apt-cache pkgnames) ;;
-                list-installed) native_cmd_parts=(apt list --installed) ;;
-                list-files)     if _require_command dpkg "dpkg utility"; then native_cmd_parts=(dpkg -L "${args[@]}"); else return 1; fi ;;
-                show)           native_cmd_parts=(apt-cache show "${args[@]}") ;;
-                clean-cache)    native_cmd_parts=(apt-get clean); needs_sudo=1 ;;
-                autoremove)     native_cmd_parts=(apt-get autoremove -y); needs_sudo=1 ;;
-                 *) _err "Xpac action '$xpac_action' not implemented for apt."; return 1 ;;
-            esac
-            ;;
-        dnf | yum)
-            local mgr_cmd="$package_manager"
-            case "$xpac_action" in
-                install)        native_cmd_parts=("$mgr_cmd" install -y "${args[@]}"); needs_sudo=1 ;;
-                remove)         native_cmd_parts=("$mgr_cmd" remove -y "${args[@]}"); needs_sudo=1 ;;
-                purge)          _info "'purge' not distinct for $mgr_cmd; using remove."; native_cmd_parts=("$mgr_cmd" remove -y "${args[@]}"); needs_sudo=1 ;;
-                search)         native_cmd_parts=("$mgr_cmd" search "${args[@]}") ;;
-                search-installed) native_cmd_parts=("$mgr_cmd" list installed "${args[@]}") ;;
-                update)         native_cmd_parts=("$mgr_cmd" check-update); suppress_exit_code=1; needs_sudo=1 ;;
-                upgrade)        native_cmd_parts=("$mgr_cmd" upgrade -y); needs_sudo=1 ;;
-                list)           native_cmd_parts=("$mgr_cmd" list available) ;;
-                list-installed) native_cmd_parts=("$mgr_cmd" list installed) ;;
-                list-files)     if _require_command rpm "rpm utility"; then native_cmd_parts=(rpm -ql "${args[@]}"); else return 1; fi ;;
-                show)           native_cmd_parts=("$mgr_cmd" info "${args[@]}") ;;
-                clean-cache)    native_cmd_parts=("$mgr_cmd" clean all); needs_sudo=1 ;;
-                autoremove)     native_cmd_parts=("$mgr_cmd" autoremove -y); needs_sudo=1 ;;
-                 *) _err "Xpac action '$xpac_action' not implemented for $mgr_cmd."; return 1 ;;
-            esac
-            ;;
-        zypper)
-            case "$xpac_action" in
-                install)        native_cmd_parts=(zypper --non-interactive install "${args[@]}"); needs_sudo=1 ;;
-                remove)         native_cmd_parts=(zypper --non-interactive remove "${args[@]}"); needs_sudo=1 ;;
-                purge)          _info "'purge' not distinct for zypper; using remove."; native_cmd_parts=(zypper --non-interactive remove "${args[@]}"); needs_sudo=1 ;;
-                search)         native_cmd_parts=(zypper search "${args[@]}") ;;
-                search-installed) native_cmd_parts=(zypper search --installed-only "${args[@]}") ;;
-                update)         native_cmd_parts=(zypper refresh); needs_sudo=1 ;;
-                upgrade)        native_cmd_parts=(zypper --non-interactive update); needs_sudo=1 ;;
-                list)           native_cmd_parts=(zypper search --type package) ;;
-                list-installed) native_cmd_parts=(zypper search --installed-only --type package) ;;
-                list-files)     if _require_command rpm "rpm utility"; then native_cmd_parts=(rpm -ql "${args[@]}"); else return 1; fi ;;
-                show)           native_cmd_parts=(zypper info "${args[@]}") ;;
-                clean-cache)    native_cmd_parts=(zypper clean --all); needs_sudo=1 ;;
-                autoremove)     native_cmd_parts=(zypper remove --clean-deps --non-interactive); needs_sudo=1 ;;
-                 *) _err "Xpac action '$xpac_action' not implemented for zypper."; return 1 ;;
-            esac
-            ;;
-        pkg)
-            case "$xpac_action" in
-                install)        native_cmd_parts=(pkg install -y "${args[@]}"); needs_sudo=1 ;;
-                remove)         native_cmd_parts=(pkg remove -y "${args[@]}"); needs_sudo=1 ;;
-                purge)          _info "'purge' not distinct for pkg; using remove."; native_cmd_parts=(pkg remove -y "${args[@]}"); needs_sudo=1 ;;
-                search)         native_cmd_parts=(pkg search "${args[@]}") ;;
-                update)         native_cmd_parts=(pkg update); needs_sudo=1 ;;
-                upgrade)        native_cmd_parts=(pkg upgrade -y); needs_sudo=1 ;;
-                list)           native_cmd_parts=(pkg rquery "%n-%v") ;;
-                list-installed) native_cmd_parts=(pkg query "%n-%v") ;;
-                list-files)     native_cmd_parts=(pkg info -l "${args[@]}") ;;
-                show)           native_cmd_parts=(pkg info "${args[@]}") ;;
-                clean-cache)    native_cmd_parts=(pkg clean -y); needs_sudo=1 ;;
-                autoremove)     native_cmd_parts=(pkg autoremove -y); needs_sudo=1 ;;
-                 *) _err "Xpac action '$xpac_action' not implemented for pkg."; return 1 ;;
-            esac
-            ;;
+        pacman)    _map_cmd_pacman  native_cmd_parts needs_sudo suppress_exit_code "$xpac_action" "${args[@]}" || return $? ;;
+        yay)       _map_cmd_yay     native_cmd_parts needs_sudo suppress_exit_code "$xpac_action" "${args[@]}" || return $? ;;
+        apt)       _map_cmd_apt     native_cmd_parts needs_sudo suppress_exit_code "$xpac_action" "${args[@]}" || return $? ;;
+        dnf | yum) _map_cmd_dnf_yum native_cmd_parts needs_sudo suppress_exit_code "$xpac_action" "${args[@]}" || return $? ;;
+        zypper)    _map_cmd_zypper  native_cmd_parts needs_sudo suppress_exit_code "$xpac_action" "${args[@]}" || return $? ;;
+        pkg)       _map_cmd_pkg     native_cmd_parts needs_sudo suppress_exit_code "$xpac_action" "${args[@]}" || return $? ;;
         *)
             _err "Package manager '$package_manager' not handled in _run_native_command."
             return 1
@@ -610,17 +579,20 @@ _run_native_command() {
         return 1
     fi
 
-    local final_cmd_str
-    if [[ "$needs_sudo" -eq 1 ]]; then
-         final_cmd_str=$(_maybe_sudo "${native_cmd_parts[@]}")
+    local final_cmd=()
+    if [[ "$needs_sudo" -eq 1 && "$EUID" -ne 0 && "$package_manager" != "yay" ]]; then
+        final_cmd=(sudo "${native_cmd_parts[@]}")
     else
-         printf -v final_cmd_str "%q " "${native_cmd_parts[@]}"
+        final_cmd=("${native_cmd_parts[@]}")
     fi
 
-    # Show the command that will be executed
-    _info "Executing: $final_cmd_str"
+    if [[ "$DRY_RUN" -eq 1 ]]; then
+        _info "[dry-run] Would execute: ${final_cmd[*]}"
+        return 0
+    fi
 
-    eval "$final_cmd_str"
+    _info "Executing: ${final_cmd[*]}"
+    "${final_cmd[@]}"
     local exit_status=$?
 
     if [[ "$suppress_exit_code" -eq 1 && "$exit_status" -ne 0 ]]; then
@@ -659,8 +631,8 @@ search_packages() {
 
 # Description: Searches installed packages (specific implementations).
 search_installed_packages() {
-  local query="$@"
-  if [ -z "$query" ]; then _err "No search query specified for installed packages."; return 1; fi
+  if [ $# -eq 0 ]; then _err "No search query specified for installed packages."; return 1; fi
+  local query="$*"
 
   case "$package_manager" in
     pkg)
@@ -679,6 +651,10 @@ search_installed_packages() {
 
 # Description: Updates the local package list/cache.
 update_package_list() {
+  if [[ "$package_manager" == "pacman" || "$package_manager" == "yay" ]]; then
+    _warning "Running a database sync without upgrading (partial update) is discouraged on Arch."
+    _info "Consider using 'xpac update-upgrade' (or 'xpac uu') instead."
+  fi
   _info "Updating package list using $package_manager..."
   _run_native_command "update"
 }
@@ -755,9 +731,11 @@ autoremove() {
                   local orphans
                   orphans=$(pacman -Qdtq)
                   if [[ -n "$orphans" ]]; then
-                    local cmd_str
-                    cmd_str=$(_maybe_sudo pacman -Rs --noconfirm -)
-                    echo "$orphans" | eval "$cmd_str"
+                    local cmd=(pacman -Rs --noconfirm)
+                    if [[ "$EUID" -ne 0 ]]; then
+                        cmd=(sudo "${cmd[@]}")
+                    fi
+                    echo "$orphans" | "${cmd[@]}" -
                     return $?
                   else
                     _info "No orphaned packages to remove."
@@ -966,6 +944,7 @@ util_top() {
 
     ps_output=$(ps axo user:$((${w_user}+1)),pid,%cpu,%mem,vsz,rss,stat,start_time,time,args --sort="$sort_key_ps" | tail -n +2)
     if [ -n "$filter_pattern" ]; then ps_output=$(echo "$ps_output" | grep -i -- "$filter_pattern"); fi
+    local formatted_output
     formatted_output=$(echo "$ps_output" | head -n "$num_lines" | awk -v u=$w_user -v p=$w_pid -v c=$w_cpu -v m=$w_mem -v v=$w_vsz -v r=$w_rss -v st=$w_stat -v sd=$w_start -v t=$w_time -v cmdw=$w_cmd "$awk_script")
     local awk_exit_status=$?
     echo "$formatted_output"
@@ -1057,6 +1036,9 @@ util_governors() {
 
 # Description: Updates pacman mirrorlist using reflector (Arch Linux only).
 util_update_mirrors() {
+    local sudo_cmd=()
+    [[ "$EUID" -ne 0 ]] && sudo_cmd=(sudo)
+
     # Display header with ASCII art
     echo -e "${BOLD}${CYAN}"
     echo "╔══════════════════════════════════════════════════════════════════════════════╗"
@@ -1101,7 +1083,7 @@ util_update_mirrors() {
     _progress 2 3 "Copying mirrorlist"
     sleep 0.2
     
-    if sudo cp /etc/pacman.d/mirrorlist "$backup_file" 2>/dev/null; then
+    if "${sudo_cmd[@]}" cp /etc/pacman.d/mirrorlist "$backup_file" 2>/dev/null; then
         _progress 3 3 "Backup complete"
         _success "Backup created: ${BOLD}$(basename "$backup_file")${NC}"
     else
@@ -1112,15 +1094,13 @@ util_update_mirrors() {
     # Step 4: Fetch and rank mirrors
     _step 4 5 "Fetching and ranking mirrors..."
     echo -e "${CYAN}📡 Connecting to Arch Linux mirror servers...${NC}"
-    echo -e "${YELLOW}⏱️  This process may take 1-3 minutes depending on network speed${NC}"
-    echo
     
     # Start reflector in background with output capture
     local temp_file=$(mktemp)
     local error_file=$(mktemp)
     
     # Run reflector command in background
-    sudo reflector \
+    "${sudo_cmd[@]}" reflector \
         --verbose \
         --latest 50 \
         --protocol https \
@@ -1132,15 +1112,15 @@ util_update_mirrors() {
     local reflector_pid=$!
     
     # Show advanced animated progress while reflector runs
-    echo -e "${BOLD}${PURPLE}� Starting mirror optimization process...${NC}"
+    echo -e "${BOLD}${PURPLE}🚀 Starting mirror optimization process...${NC}"
     echo -e "${YELLOW}⏱️  This may take 1-3 minutes depending on network speed${NC}"
     echo
     
     # Run our beautiful animation while reflector works
-    _mirror_animation $reflector_pid
-    
+    _mirror_animation "$reflector_pid"
+
     # Wait for reflector to complete and get exit status
-    wait $reflector_pid
+    wait "$reflector_pid"
     local exit_status=$?
     
     # Step 5: Verify results
@@ -1179,7 +1159,7 @@ util_update_mirrors() {
         fi
         
         _warning "Restoring previous mirrorlist..."
-        if sudo cp "$backup_file" /etc/pacman.d/mirrorlist; then
+        if "${sudo_cmd[@]}" cp "$backup_file" /etc/pacman.d/mirrorlist; then
             _success "Previous mirrorlist restored successfully."
         else
             _err "Failed to restore backup! Please manually restore from: $backup_file"
@@ -1256,9 +1236,7 @@ selective_install_package() {
     yay)
       _info "Unrecognized command '$potential_package'. Attempting interactive search/install with yay."
       yay "$@"
-      # FIX: Return 127 (command not found) even if yay succeeds
-      _err "Command '$potential_package' is not a valid xpac command."
-      return 127
+      return $?
       ;;
     *)
       _err "Unknown action or package '$potential_package'."
@@ -1269,9 +1247,17 @@ selective_install_package() {
 
 # Description: Handles the main action based on user input command.
 handle_main_action() {
+  # Process global flags before the action
+  while true; do
+    case "${1:-}" in
+      --dry-run)    DRY_RUN=1; shift ;;
+      --quiet|-q)   QUIET=1; shift ;;
+      --help|-h)    display_usage; return 0 ;;
+      --version|-v) echo "xpac version $XPAC_VERSION"; return 0 ;;
+      *)            break ;;
+    esac
+  done
   local action="${1:-update-upgrade}"; shift || true; local args=("$@")
-  if [[ "$action" == "--help" || "$action" == "-h" ]]; then display_usage; return 0; fi
-  if [[ "$action" == "--version" || "$action" == "-v" ]]; then echo "xpac version $XPAC_VERSION"; return 0; fi
 
   case "$action" in
     install | i | add)        install_package "${args[@]}" ;;
